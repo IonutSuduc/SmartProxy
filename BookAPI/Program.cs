@@ -1,11 +1,11 @@
 using BookAPI.Repositories;
+using BookAPI.ServiceDiscovery;
 using BookAPI.Settings;
 using Common.Models;
+using Consul;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Add services to the container.
 
 builder.Services.AddControllers();
 
@@ -14,12 +14,22 @@ builder.Services.AddSingleton<IMongoDbSettings>(provider => provider.GetRequired
 
 builder.Services.AddScoped<IMongoRepository<Book>, MongoRepository<Book>>();
 
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// Health check: ping la MongoDB
+builder.Services.AddSingleton<MongoHealthCheck>();
+builder.Services.AddHealthChecks().AddCheck<MongoHealthCheck>("mongodb");
+
+// Înregistrare în Consul
+builder.Services.AddSingleton<IConsulClient>(_ => new ConsulClient(cfg =>
+{
+    var address = builder.Configuration["ServiceDiscovery:ConsulAddress"] ?? "http://consul:8500";
+    cfg.Address = new Uri(address);
+}));
+builder.Services.AddHostedService<ConsulRegistrationService>();
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -28,5 +38,6 @@ if (app.Environment.IsDevelopment())
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 app.Run();

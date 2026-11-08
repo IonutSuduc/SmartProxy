@@ -5,16 +5,7 @@
       "UpstreamPathTemplate": "/{url}",
       "DownstreamPathTemplate": "/{url}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "bookapi1",
-          "Port": 8080
-        },
-        {
-          "Host": "bookapi2",
-          "Port": 8080
-        }
-      ],
+      "ServiceName": "bookapi",
       "LoadBalancerOptions": {
         "Type": "RoundRobin"
       },
@@ -30,19 +21,18 @@
       "UpstreamPathTemplate": "/{url}",
       "DownstreamPathTemplate": "/{url}",
       "DownstreamScheme": "http",
-      "DownstreamHostAndPorts": [
-        {
-          "Host": "bookapi1",
-          "Port": 8080
-        },
-        {
-          "Host": "bookapi2",
-          "Port": 8080
-        }
-      ],
+      "ServiceName": "bookapi",
       "LoadBalancerOptions": {
         "Type": "RoundRobin"
       }
     }
-  ]
+  ],
+  "GlobalConfiguration": {
+    "ServiceDiscoveryProvider": {
+      "Scheme": "http",
+      "Host": "consul",
+      "Port": 8500,
+      "Type": "Consul"
+    }
+  }
 }
