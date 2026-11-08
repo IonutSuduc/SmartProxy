@@ -1,0 +1,57 @@
+services:
+  proxy:
+    image: ${DOCKER_REGISTRY-}proxy
+    build:
+      context: .
+      dockerfile: Proxy/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "9000:8080"
+    depends_on:
+      - bookapi1
+      - bookapi2
+
+  bookapi1:
+    image: ${DOCKER_REGISTRY-}bookapi
+    build:
+      context: .
+      dockerfile: BookAPI/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - MongoDbSettings__ConnectionString=mongodb://mongodb1:27017
+    ports:
+      - "5032:8080"
+    depends_on:
+      - mongodb1
+
+  bookapi2:
+    image: ${DOCKER_REGISTRY-}bookapi
+    build:
+      context: .
+      dockerfile: BookAPI/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - MongoDbSettings__ConnectionString=mongodb://mongodb2:27017
+    ports:
+      - "5033:8080"
+    depends_on:
+      - mongodb2
+
+  mongodb1:
+    image: mongo:latest
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data1:/data/db
+
+  mongodb2:
+    image: mongo:latest
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongo_data2:/data/db
+
+volumes:
+  mongo_data1:
+  mongo_data2:

@@ -1,0 +1,48 @@
+﻿{
+  "Routes": [
+    {
+      "UpstreamHttpMethod": [ "Get" ],
+      "UpstreamPathTemplate": "/{url}",
+      "DownstreamPathTemplate": "/{url}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "bookapi1",
+          "Port": 8080
+        },
+        {
+          "Host": "bookapi2",
+          "Port": 8080
+        }
+      ],
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      },
+      "CacheOptions": {
+        "TtlSeconds": 15,
+        "Region": "books",
+        "Header": "OC-Cache-Control",
+        "EnableContentHashing": false
+      }
+    },
+    {
+      "UpstreamHttpMethod": [ "Post", "Put", "Delete" ],
+      "UpstreamPathTemplate": "/{url}",
+      "DownstreamPathTemplate": "/{url}",
+      "DownstreamScheme": "http",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "bookapi1",
+          "Port": 8080
+        },
+        {
+          "Host": "bookapi2",
+          "Port": 8080
+        }
+      ],
+      "LoadBalancerOptions": {
+        "Type": "RoundRobin"
+      }
+    }
+  ]
+}

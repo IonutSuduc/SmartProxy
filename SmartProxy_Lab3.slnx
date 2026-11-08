@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="BookAPI/BookAPI.csproj" />
+  <Project Path="Common/Common.csproj" Id="76bfedb8-b74f-4d9e-8f1a-afaf99d38be1" />
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
+  <Project Path="Proxy/Proxy.csproj" />
+</Solution>
