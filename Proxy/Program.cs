@@ -1,19 +1,11 @@
-using Ocelot.DependencyInjection;
-using Ocelot.Discovery.Consul;
-using Ocelot.Middleware;
 using Proxy.Sync.Cache;
 using Proxy.Sync.Helpers;
 using Proxy.Sync.Queue;
+using Proxy.Sync.Resilience;
 using Proxy.Sync.Services;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
-
-builder.Configuration.AddJsonFile("ocelot.json", optional: false, reloadOnChange: true);
-
-builder.Services
-    .AddOcelot(builder.Configuration)
-    .AddConsul<BookApiConsulServiceBuilder>();
 
 // Redis: AbortOnConnectFail=false, ca Proxy-ul să pornească chiar dacă Redis nu e încă gata
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -27,16 +19,18 @@ builder.Services.AddHttpClient("bookapi", c => c.Timeout = TimeSpan.FromSeconds(
 builder.Services.AddSingleton<IBookCache, RedisBookCache>();
 builder.Services.AddSingleton<IWriteQueue, RedisWriteQueue>();
 builder.Services.AddSingleton<InstanceRegistry>();
+builder.Services.AddSingleton<CircuitBreakerRegistry>();
+builder.Services.AddSingleton<GetForwarder>();
 builder.Services.AddSingleton<WriteSyncService>();
 builder.Services.AddHostedService<ReplayService>();
 
 var app = builder.Build();
 
-app.Use(async (context, next) =>
+app.Run(async context =>
 {
     var method = context.Request.Method;
 
-    // GET: cache-aside în Redis
+    // GET: cache-aside în Redis + forwarder cu circuit breaker
     if (HttpMethods.IsGet(method))
     {
         var cache = context.RequestServices.GetRequiredService<IBookCache>();
@@ -52,29 +46,26 @@ app.Use(async (context, next) =>
             return;
         }
 
-        // Miss: lăsăm Ocelot să răspundă, captăm răspunsul și îl salvăm
-        var original = context.Response.Body;
-        using var buffer = new MemoryStream();
-        context.Response.Body = buffer;
-        try
-        {
-            await next();
+        // Miss: trimitem la o instanță, cu circuit breaker și retry pe alta
+        var forwarder = context.RequestServices.GetRequiredService<GetForwarder>();
+        var getResult = await forwarder.ForwardAsync(
+            context.Request.Path + context.Request.QueryString, context.RequestAborted);
 
-            buffer.Position = 0;
-            if (context.Response.StatusCode == 200 && buffer.Length > 0)
-            {
-                var text = await new StreamReader(buffer).ReadToEndAsync();
-                await cache.SetAsync(key, text);
-            }
-
-            context.Response.Headers["X-Cache"] = "MISS";
-            buffer.Position = 0;
-            await buffer.CopyToAsync(original);
-        }
-        finally
+        if (getResult == null)
         {
-            context.Response.Body = original;
+            context.Response.StatusCode = 503;
+            await context.Response.WriteAsync("Nicio instanță disponibilă");
+            return;
         }
+
+        if (getResult.StatusCode == 200 && getResult.Body.Length > 0)
+            await cache.SetAsync(key, getResult.Body);
+
+        context.Response.StatusCode = getResult.StatusCode;
+        context.Response.ContentType = getResult.ContentType ?? "application/json";
+        context.Response.Headers["X-Cache"] = "MISS";
+        context.Response.Headers["X-Served-By"] = getResult.InstanceId;
+        await context.Response.WriteAsync(getResult.Body);
         return;
     }
 
@@ -84,7 +75,7 @@ app.Use(async (context, next) =>
 
     if (!isWrite)
     {
-        await next();
+        context.Response.StatusCode = 405;
         return;
     }
 
@@ -117,7 +108,5 @@ app.Use(async (context, next) =>
         await context.Response.WriteAsync(result.Body);
     }
 });
-
-await app.UseOcelot();
 
 app.Run();

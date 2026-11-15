@@ -1,6 +1,7 @@
 ﻿using Proxy.Sync.Cache;
 using Proxy.Sync.Models;
 using Proxy.Sync.Queue;
+using Proxy.Sync.Resilience;
 using System.Text;
 
 namespace Proxy.Sync.Services
@@ -12,14 +13,17 @@ namespace Proxy.Sync.Services
         private readonly IHttpClientFactory _httpFactory;
         private readonly IBookCache _cache;
         private readonly ILogger<WriteSyncService> _logger;
+        private readonly CircuitBreakerRegistry _breakers;
 
         public WriteSyncService(InstanceRegistry registry, IWriteQueue queue,
-    IHttpClientFactory httpFactory, IBookCache cache, ILogger<WriteSyncService> logger)
+    IHttpClientFactory httpFactory, IBookCache cache, CircuitBreakerRegistry breakers,
+    ILogger<WriteSyncService> logger)
         {
             _registry = registry;
             _queue = queue;
             _httpFactory = httpFactory;
             _cache = cache;
+            _breakers = breakers;
             _logger = logger;
         }
 
@@ -74,7 +78,7 @@ namespace Proxy.Sync.Services
         private Task<Attempt> AttemptAsync(BookInstance inst, PendingWrite write)
         {
             // Instanță căzută sau în urmă: nu trimitem direct, ca să păstrăm ordinea
-            if (!inst.Healthy || _queue.Count(inst.Id) > 0)
+            if (!inst.Healthy || _queue.Count(inst.Id) > 0 || !_breakers.AllowRequest(inst.Id))
                 return Task.FromResult(new Attempt(inst, Outcome.Failed, 503, ""));
 
             return SendAsync(inst, write, replay: false);
@@ -100,11 +104,15 @@ namespace Proxy.Sync.Services
                             : code is >= 400 and < 500 ? Outcome.Rejected
                             : Outcome.Failed;
 
+                if (outcome == Outcome.Failed) _breakers.RecordFailure(inst.Id);
+                else _breakers.RecordSuccess(inst.Id);
+
                 return new Attempt(inst, outcome, code, text);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning("{Method} către {Id} a eșuat: {Message}", method, inst.Id, ex.Message);
+                _breakers.RecordFailure(inst.Id);
                 return new Attempt(inst, Outcome.Failed, 503, "");
             }
         }
