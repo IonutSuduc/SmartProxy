@@ -11,7 +11,10 @@ namespace BookAPI.Repositories
         private readonly IMongoCollection<T> _collection;
         public MongoRepository(IMongoDbSettings dbSettings)
         {
-            _db = new MongoClient(dbSettings.ConnectionString).GetDatabase(dbSettings.DatabaseName);
+            var clientSettings = MongoClientSettings.FromConnectionString(dbSettings.ConnectionString);
+            // Dacă Mongo e oprit, eșuăm în 2 secunde în loc de 30
+            clientSettings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);
+            _db = new MongoClient(clientSettings).GetDatabase(dbSettings.DatabaseName);
 
             string tableName = typeof(T).Name.ToLower();
             _collection = _db.GetCollection<T>(tableName);

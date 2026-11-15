@@ -8,12 +8,6 @@
       "ServiceName": "bookapi",
       "LoadBalancerOptions": {
         "Type": "RoundRobin"
-      },
-      "CacheOptions": {
-        "TtlSeconds": 15,
-        "Region": "books",
-        "Header": "OC-Cache-Control",
-        "EnableContentHashing": false
       }
     },
     {

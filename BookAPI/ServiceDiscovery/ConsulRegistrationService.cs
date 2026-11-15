@@ -40,9 +40,9 @@ namespace BookAPI.ServiceDiscovery
                 {
                     HTTP = $"http://{_settings.ServiceHost}:{_settings.ServicePort}/health",
                     Interval = TimeSpan.FromSeconds(1),
-                    Timeout = TimeSpan.FromSeconds(1),
-                    // Consul scoate complet instanța după 1 minut în stare critică
-                    DeregisterCriticalServiceAfter = TimeSpan.FromMinutes(1)
+                    Timeout = TimeSpan.FromSeconds(1)
+                    // Fără DeregisterCriticalServiceAfter: instanța rămâne în registru
+                    // ca "critical" cât timp BookAPI rulează și revine singură la "passing".
                 }
             };
 
