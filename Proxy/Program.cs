@@ -66,10 +66,15 @@ app.Run(async context =>
             await cache.SetAsync(key, getResult.Body);
 
         context.Response.StatusCode = getResult.StatusCode;
-        context.Response.ContentType = getResult.ContentType ?? accept;
         context.Response.Headers["X-Cache"] = "MISS";
         context.Response.Headers["X-Served-By"] = getResult.InstanceId;
-        await context.Response.WriteAsync(getResult.Body);
+
+        // 204 și alte răspunsuri fără body nu permit scrierea în corp
+        if (getResult.StatusCode != 204 && !string.IsNullOrEmpty(getResult.Body))
+        {
+            context.Response.ContentType = getResult.ContentType ?? accept;
+            await context.Response.WriteAsync(getResult.Body);
+        }
         return;
     }
 
