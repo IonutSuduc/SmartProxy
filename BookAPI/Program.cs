@@ -26,6 +26,8 @@ builder.Services.AddSingleton<IConsulClient>(_ => new ConsulClient(cfg =>
 }));
 builder.Services.AddHostedService<ConsulRegistrationService>();
 
+builder.Services.AddControllers().AddXmlSerializerFormatters();
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

@@ -16,8 +16,8 @@ namespace Proxy.Sync.Services
         private readonly CircuitBreakerRegistry _breakers;
 
         public WriteSyncService(InstanceRegistry registry, IWriteQueue queue,
-    IHttpClientFactory httpFactory, IBookCache cache, CircuitBreakerRegistry breakers,
-    ILogger<WriteSyncService> logger)
+            IHttpClientFactory httpFactory, IBookCache cache, CircuitBreakerRegistry breakers,
+            ILogger<WriteSyncService> logger)
         {
             _registry = registry;
             _queue = queue;
@@ -27,15 +27,15 @@ namespace Proxy.Sync.Services
             _logger = logger;
         }
 
-        public async Task<SyncResult> BroadcastAsync(string method, string pathAndQuery, string? body, CancellationToken ct)
+        public async Task<SyncResult> BroadcastAsync(string method, string pathAndQuery, string? body,
+            string contentType, string accept, CancellationToken ct)
         {
             var instances = _registry.Instances.ToList();
             if (instances.Count == 0)
-                return new SyncResult(503, "{\"error\":\"Nicio instanță BookAPI cunoscută\"}");
+                return new SyncResult(503, "{\"error\":\"Nicio instanță BookAPI cunoscută\"}", "application/json");
 
-            var write = new PendingWrite(method, pathAndQuery, body, DateTime.UtcNow);
+            var write = new PendingWrite(method, pathAndQuery, body, DateTime.UtcNow, contentType, accept);
 
-            // Lock-uri luate în ordinea Id-urilor, ca să nu apară deadlock cu serviciul de replay
             var acquired = new List<SemaphoreSlim>();
             try
             {
@@ -59,15 +59,14 @@ namespace Proxy.Sync.Services
                     }
 
                     await _cache.InvalidateAllAsync();
-                    return new SyncResult(applied[0].StatusCode, applied[0].Body);
+                    return new SyncResult(applied[0].StatusCode, applied[0].Body, applied[0].ContentType);
                 }
 
-                // Nicio instanță nu a aplicat scrierea: nu punem nimic în coadă
                 var rejected = attempts.FirstOrDefault(a => a.Outcome == Outcome.Rejected);
                 if (rejected != null)
-                    return new SyncResult(rejected.StatusCode, rejected.Body);
+                    return new SyncResult(rejected.StatusCode, rejected.Body, rejected.ContentType);
 
-                return new SyncResult(503, "{\"error\":\"Nicio instanță disponibilă\"}");
+                return new SyncResult(503, "{\"error\":\"Nicio instanță disponibilă\"}", "application/json");
             }
             finally
             {
@@ -77,7 +76,6 @@ namespace Proxy.Sync.Services
 
         private Task<Attempt> AttemptAsync(BookInstance inst, PendingWrite write)
         {
-            // Instanță căzută sau în urmă: nu trimitem direct, ca să păstrăm ordinea
             if (!inst.Healthy || _queue.Count(inst.Id) > 0 || !_breakers.AllowRequest(inst.Id))
                 return Task.FromResult(new Attempt(inst, Outcome.Failed, 503, ""));
 
@@ -93,8 +91,9 @@ namespace Proxy.Sync.Services
             {
                 var client = _httpFactory.CreateClient("bookapi");
                 using var request = new HttpRequestMessage(new HttpMethod(method), new Uri(inst.BaseUri, write.PathAndQuery));
+                request.Headers.TryAddWithoutValidation("Accept", write.Accept);
                 if (write.Body != null)
-                    request.Content = new StringContent(write.Body, Encoding.UTF8, "application/json");
+                    request.Content = new StringContent(write.Body, Encoding.UTF8, write.ContentType);
 
                 using var response = await client.SendAsync(request);
                 var text = await response.Content.ReadAsStringAsync();
@@ -107,7 +106,7 @@ namespace Proxy.Sync.Services
                 if (outcome == Outcome.Failed) _breakers.RecordFailure(inst.Id);
                 else _breakers.RecordSuccess(inst.Id);
 
-                return new Attempt(inst, outcome, code, text);
+                return new Attempt(inst, outcome, code, text, response.Content.Headers.ContentType?.MediaType);
             }
             catch (Exception ex)
             {
@@ -116,7 +115,5 @@ namespace Proxy.Sync.Services
                 return new Attempt(inst, Outcome.Failed, 503, "");
             }
         }
-
-        
     }
 }

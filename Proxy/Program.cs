@@ -7,7 +7,6 @@ using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Redis: AbortOnConnectFail=false, ca Proxy-ul să pornească chiar dacă Redis nu e încă gata
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 {
     var options = ConfigurationOptions.Parse(builder.Configuration["Redis:ConnectionString"] ?? "redis:6379");
@@ -30,26 +29,31 @@ app.Run(async context =>
 {
     var method = context.Request.Method;
 
+    // Formatul cerut de client: XML dacă Accept conține "xml", altfel JSON
+    var acceptHeader = context.Request.Headers.Accept.ToString();
+    var wantsXml = BookBody.IsXml(acceptHeader);
+    var accept = wantsXml ? "application/xml" : "application/json";
+    var format = wantsXml ? "xml" : "json";
+
     // GET: cache-aside în Redis + forwarder cu circuit breaker
     if (HttpMethods.IsGet(method))
     {
         var cache = context.RequestServices.GetRequiredService<IBookCache>();
-        var key = RedisBookCache.KeyFor(context.Request.Path, context.Request.QueryString);
+        var key = RedisBookCache.KeyFor(context.Request.Path, context.Request.QueryString, format);
 
         var cached = await cache.GetAsync(key);
         if (cached != null)
         {
             context.Response.StatusCode = 200;
-            context.Response.ContentType = "application/json";
+            context.Response.ContentType = accept;
             context.Response.Headers["X-Cache"] = "HIT";
             await context.Response.WriteAsync(cached);
             return;
         }
 
-        // Miss: trimitem la o instanță, cu circuit breaker și retry pe alta
         var forwarder = context.RequestServices.GetRequiredService<GetForwarder>();
         var getResult = await forwarder.ForwardAsync(
-            context.Request.Path + context.Request.QueryString, context.RequestAborted);
+            context.Request.Path + context.Request.QueryString, accept, context.RequestAborted);
 
         if (getResult == null)
         {
@@ -62,14 +66,13 @@ app.Run(async context =>
             await cache.SetAsync(key, getResult.Body);
 
         context.Response.StatusCode = getResult.StatusCode;
-        context.Response.ContentType = getResult.ContentType ?? "application/json";
+        context.Response.ContentType = getResult.ContentType ?? accept;
         context.Response.Headers["X-Cache"] = "MISS";
         context.Response.Headers["X-Served-By"] = getResult.InstanceId;
         await context.Response.WriteAsync(getResult.Body);
         return;
     }
 
-    // POST/PUT/DELETE: broadcast + coadă (invalidarea cache-ului se face în WriteSyncService)
     var isPostOrPut = HttpMethods.IsPost(method) || HttpMethods.IsPut(method);
     var isWrite = isPostOrPut || HttpMethods.IsDelete(method);
 
@@ -80,16 +83,20 @@ app.Run(async context =>
     }
 
     string? body = null;
+    var contentType = "application/json";
     if (isPostOrPut)
     {
+        var requestIsXml = BookBody.IsXml(context.Request.ContentType);
+        contentType = requestIsXml ? "application/xml" : "application/json";
+
         using var reader = new StreamReader(context.Request.Body);
         var raw = await reader.ReadToEndAsync();
-        body = BookBody.EnsureId(raw);
+        body = BookBody.EnsureId(raw, requestIsXml);
 
         if (body == null)
         {
             context.Response.StatusCode = 400;
-            await context.Response.WriteAsync("Body JSON invalid");
+            await context.Response.WriteAsync("Body invalid");
             return;
         }
     }
@@ -99,12 +106,14 @@ app.Run(async context =>
         method,
         context.Request.Path + context.Request.QueryString,
         body,
+        contentType,
+        accept,
         context.RequestAborted);
 
     context.Response.StatusCode = result.StatusCode;
     if (!string.IsNullOrEmpty(result.Body))
     {
-        context.Response.ContentType = "application/json";
+        context.Response.ContentType = result.ContentType ?? accept;
         await context.Response.WriteAsync(result.Body);
     }
 });

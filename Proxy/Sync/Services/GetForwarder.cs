@@ -22,7 +22,7 @@ namespace Proxy.Sync.Services
         }
 
         // Round Robin peste instanțele sănătoase, cu retry pe următoarea la eșec. null = nicio instanță nu a răspuns.
-        public async Task<ForwardResult?> ForwardAsync(string pathAndQuery, CancellationToken ct)
+        public async Task<ForwardResult?> ForwardAsync(string pathAndQuery, string accept, CancellationToken ct)
         {
             var candidates = _registry.Instances.Where(i => i.Healthy).ToList();
             if (candidates.Count == 0) return null;
@@ -38,6 +38,7 @@ namespace Proxy.Sync.Services
                 {
                     var client = _httpFactory.CreateClient("bookapi");
                     using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(inst.BaseUri, pathAndQuery));
+                    request.Headers.TryAddWithoutValidation("Accept", accept);
                     using var response = await client.SendAsync(request, ct);
                     var body = await response.Content.ReadAsStringAsync(ct);
                     var code = (int)response.StatusCode;

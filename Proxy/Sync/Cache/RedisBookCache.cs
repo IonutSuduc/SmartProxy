@@ -23,8 +23,8 @@ namespace Proxy.Sync.Cache
             _logger = logger;
         }
 
-        public static string KeyFor(PathString path, QueryString query)
-            => Prefix + path.Value?.TrimEnd('/').ToLowerInvariant() + query.Value;
+        public static string KeyFor(PathString path, QueryString query, string format)
+            => Prefix + format + ":" + path.Value?.TrimEnd('/').ToLowerInvariant() + query.Value;
 
         public async Task<string?> GetAsync(string key)
         {
