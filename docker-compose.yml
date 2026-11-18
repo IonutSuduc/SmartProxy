@@ -28,6 +28,7 @@ services:
       - redis
       - bookapi1
       - bookapi2
+      - bookapi3
 
   bookapi1:
     image: ${DOCKER_REGISTRY-}bookapi
@@ -67,6 +68,26 @@ services:
       - consul
       - mongodb2
 
+
+  bookapi3:
+    image: ${DOCKER_REGISTRY-}bookapi
+    build:
+      context: .
+      dockerfile: BookAPI/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - MongoDbSettings__ConnectionString=mongodb://mongodb3:27017
+      - ServiceDiscovery__ConsulAddress=http://consul:8500
+      - ServiceDiscovery__ServiceName=bookapi
+      - ServiceDiscovery__ServiceId=bookapi3
+      - ServiceDiscovery__ServiceHost=bookapi3
+      - ServiceDiscovery__ServicePort=8080
+    ports:
+      - "5034:8080"
+    depends_on:
+      - consul
+      - mongodb3
+
   mongodb1:
     image: mongo:latest
     ports:
@@ -81,7 +102,15 @@ services:
     volumes:
       - mongo_data2:/data/db
 
+  mongodb3:
+    image: mongo:latest
+    ports:
+      - "27020:27017"
+    volumes:
+      - mongo_data3:/data/db
+
 volumes:
   mongo_data1:
   mongo_data2:
+  mongo_data3:
   redis_data:

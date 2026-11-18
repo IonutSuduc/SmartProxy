@@ -8,30 +8,38 @@ namespace Proxy.Sync.Helpers
         public static bool IsXml(string? mediaType)
             => mediaType != null && mediaType.Contains("xml", StringComparison.OrdinalIgnoreCase);
 
-        // Returnează null dacă body-ul nu e valid
+        // Completează Id (dacă lipsește) și LastChangedAt (mereu), o singură dată, în Proxy.
+        // Returnează null dacă body-ul nu e valid.
         public static string? EnsureId(string body, bool xml)
-            => xml ? EnsureIdXml(body) : EnsureIdJson(body);
+        {
+            var changedAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
+            return xml ? EnsureIdXml(body, changedAt) : EnsureIdJson(body, changedAt);
+        }
 
-        private static string? EnsureIdJson(string body)
+        private static string? EnsureIdJson(string body, string changedAt)
         {
             try
             {
                 if (JsonNode.Parse(body) is not JsonObject obj)
                     return null;
 
-                var key = obj.Select(p => p.Key)
-                             .FirstOrDefault(k => string.Equals(k, "id", StringComparison.OrdinalIgnoreCase)) ?? "id";
+                var idKey = obj.Select(p => p.Key)
+                               .FirstOrDefault(k => string.Equals(k, "id", StringComparison.OrdinalIgnoreCase)) ?? "id";
 
-                var current = obj[key]?.ToString();
+                var current = obj[idKey]?.ToString();
                 if (!Guid.TryParse(current, out var id) || id == Guid.Empty)
-                    obj[key] = Guid.NewGuid().ToString();
+                    obj[idKey] = Guid.NewGuid().ToString();
+
+                var timeKey = obj.Select(p => p.Key)
+                                 .FirstOrDefault(k => string.Equals(k, "lastChangedAt", StringComparison.OrdinalIgnoreCase)) ?? "lastChangedAt";
+                obj[timeKey] = changedAt;
 
                 return obj.ToJsonString();
             }
             catch { return null; }
         }
 
-        private static string? EnsureIdXml(string body)
+        private static string? EnsureIdXml(string body, string changedAt)
         {
             try
             {
@@ -51,6 +59,16 @@ namespace Proxy.Sync.Helpers
 
                 if (!Guid.TryParse(idEl.Value, out var id) || id == Guid.Empty)
                     idEl.Value = Guid.NewGuid().ToString();
+
+                var timeEl = root.Elements()
+                    .FirstOrDefault(e => string.Equals(e.Name.LocalName, "lastChangedAt", StringComparison.OrdinalIgnoreCase));
+
+                if (timeEl == null)
+                {
+                    timeEl = new XElement(root.Name.Namespace + "LastChangedAt");
+                    root.Add(timeEl);
+                }
+                timeEl.Value = changedAt;
 
                 return root.ToString(SaveOptions.DisableFormatting);
             }

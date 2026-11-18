@@ -2,6 +2,7 @@
 using Common.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Driver;
 
 namespace BookAPI.Controllers
 {
@@ -24,10 +25,15 @@ namespace BookAPI.Controllers
         [HttpPost]
         public IActionResult CreateBook(Book book)
         {
-            book.LastChangedAt = DateTime.UtcNow;
-            var result = _bookRepository.InsertRecord(book);
-
-            return Ok(result);
+            try
+            {
+                var result = _bookRepository.InsertRecord(book);
+                return Ok(result);
+            }
+            catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+            {
+                return Conflict($"Există deja o carte cu Id {book.Id}");
+            }
         }
 
         [HttpGet("{id}")]
@@ -59,7 +65,6 @@ namespace BookAPI.Controllers
                 book.Id = Guid.NewGuid();
             }
 
-            book.LastChangedAt = DateTime.UtcNow;
             _bookRepository.UpsertRecord(book);
 
             return Ok(book);
